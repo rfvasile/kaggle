@@ -1,0 +1,18 @@
+[project]
+name = "kaggle"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "accelerate>=1.13.0",
+    "kagglehub[hf-datasets]>=1.0.1",
+    "keras-hub>=0.29.0",
+    "pandas>=3.0.2",
+    "torch>=2.11.0",
+    "torchvision>=0.26.0",
+    "transformers>=5.8.0",
+]
+
+[tool.ruff.lint]
+select = ["ANN"]
