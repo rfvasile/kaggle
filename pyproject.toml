@@ -15,5 +15,8 @@ dependencies = [
     "transformers>=5.8.0",
 ]
 
+[tool.setuptools]
+packages = ["competitions"]
+
 [tool.ruff.lint]
 select = ["ANN"]
