@@ -213,9 +213,12 @@ class Trainer:
                 torch.save(self.model.state_dict(), path)
 
     def loss_fn(self, chosen_scores: Tensor, rejected_scores: Tensor, labels: Tensor) -> Tensor:
-        loss = -torch.nn.functional.logsigmoid(chosen_scores - rejected_scores).mean()
-        return loss
+        """Assign 0.5 target for tie, 1.0 otherwise and calculate loss"""
+        prob = chosen_scores - rejected_scores
+        targets = torch.where(labels == 2, 0.5, 1.0).unsqueeze(-1).to(chosen_scores.dtype)
+        loss = F.binary_cross_entropy_with_logits(prob, targets)
 
+        return loss
 
 def get_train_dataset(
     dataset_id: str = "llm-classification-finetuning",
@@ -273,6 +276,7 @@ def main(args: Namespace, seed: int = 42) -> None:
     # Network components
     model = DebertaClassifier(model_name=args.model_id, num_labels=args.num_labels)
     optimizer = torch.optim.SGD(params=model.parameters(), lr=1e-4)
+    model = DebertaClassifier(model_name=args.model_id, num_labels=args.num_labels, problem_type="regression")
 
     trainer = Trainer(training_loader, val_loader, model, optimizer)
     trainer.train(args.num_epochs)
