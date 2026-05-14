@@ -51,3 +51,8 @@ def make_reproducible(seed: int = 0) -> None:
     torch.backends.cudnn.benchmark = False
 
     print(f"Reproducibility set with seed: {seed}")
+
+
+def print_memory_usage(i: int) -> None:
+    print(f"Iteration {i}, Memory allocated {torch.cuda.memory_allocated()}")
+    print(f"Iteration {i}, Max memory allocated {torch.cuda.max_memory_allocated()}")

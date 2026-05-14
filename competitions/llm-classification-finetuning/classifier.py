@@ -7,8 +7,9 @@ from typing import Any, Callable, override
 import kagglehub
 import pandas as pd
 import torch
+import torch.nn.functional as F
 from competitions.utils import (get_reproducible_dataloader_kwargs,
-                                make_reproducible)
+                                make_reproducible, print_memory_usage)
 from pandas import DataFrame
 from torch import Tensor, optim, stack, tensor
 from torch.nn import Module
@@ -95,12 +96,13 @@ class DebertaClassifier(Module):
     def __init__(
         self,
         model_name: str,
-        num_labels: int = 1,
-        problem_type: str = "single_label_classification",
+        num_labels: int,
+        problem_type: str,
+        torch_dtype: torch.dtype = torch.bfloat16
     ) -> None:
         super(DebertaClassifier, self).__init__()
         self.classifier = AutoModelForSequenceClassification.from_pretrained(
-            model_name, num_labels=num_labels, problem_type=problem_type
+            model_name, num_labels=num_labels, problem_type=problem_type, torch_dtype=torch_dtype
         )
 
     @override
@@ -139,6 +141,8 @@ class Trainer:
         print_freq = 2
 
         for i, data in enumerate(self.training_loader):
+            print_memory_usage(i)
+
             labels = data.pop("labels").to(self.device)
             chosen_batch = data.pop("chosen_batch")
             rejected_batch = data.pop("rejected_batch")
@@ -147,15 +151,16 @@ class Trainer:
 
             self.optimizer.zero_grad()
 
-            chosen_scores = self.model(chosen_batch)
-            rejected_scores = self.model(rejected_batch)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                chosen_scores = self.model(chosen_batch)
+                rejected_scores = self.model(rejected_batch)
+                loss = self.loss_fn(chosen_scores, rejected_scores, labels)
 
-            loss = self.loss_fn(chosen_scores, rejected_scores, labels)
             loss.backward()
-
             self.optimizer.step()
             accumulated_loss += loss.item()
 
+            del chosen_scores, rejected_scores, loss
             # We print data every 1000 steps
             if i % print_freq == print_freq - 1:
                 # Calculate the average loss
@@ -168,6 +173,8 @@ class Trainer:
 
                 accumulated_loss = 0
 
+
+            print_memory_usage(i)
         return last_loss
 
     def train(self, num_epochs: int) -> None:
@@ -190,11 +197,20 @@ class Trainer:
             with torch.no_grad():
                 for i, vdata in enumerate(self.validation_loader):
                     print(f"Validation batch {i}")
-                    vlabels = vdata.pop("labels").to(self.device)
-                    vinputs = {k: v.to(self.device) for k, v in vdata.items()}
-                    vlogits = self.model(vinputs)
-                    vloss = self.loss_fn(vlogits, vlabels, vlabels)
+
+                    labels = vdata.pop("labels").to(self.device)
+                    chosen_batch = vdata.pop("chosen_batch")
+                    rejected_batch = vdata.pop("rejected_batch")
+                    chosen_batch = {k: v.to(self.device) for k, v in chosen_batch.items()}
+                    rejected_batch = {k: v.to(self.device) for k, v in rejected_batch.items()}
+
+                    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                        chosen_scores = self.model(chosen_batch)
+                        rejected_scores = self.model(rejected_batch)
+                        vloss = self.loss_fn(chosen_scores, rejected_scores, labels)
+
                     running_vloss += vloss.item()
+                    del chosen_scores, rejected_scores, vloss
 
             avg_vloss = running_vloss / (i + 1)
             print(f"LOSS train {avg_loss} valid {avg_vloss}")
@@ -211,6 +227,8 @@ class Trainer:
                 best_vloss = avg_vloss
                 path = f"model_{timestamp}_{current_epoch}"
                 torch.save(self.model.state_dict(), path)
+
+        writer.close()
 
     def loss_fn(self, chosen_scores: Tensor, rejected_scores: Tensor, labels: Tensor) -> Tensor:
         """Assign 0.5 target for tie, 1.0 otherwise and calculate loss"""
