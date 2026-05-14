@@ -292,9 +292,8 @@ def main(args: Namespace, seed: int = 42) -> None:
     val_loader = get_loader(val_dataset, tokenizer, shuffle=False)
 
     # Network components
-    model = DebertaClassifier(model_name=args.model_id, num_labels=args.num_labels)
-    optimizer = torch.optim.SGD(params=model.parameters(), lr=1e-4)
     model = DebertaClassifier(model_name=args.model_id, num_labels=args.num_labels, problem_type="regression")
+    optimizer = torch.optim.AdamW(params=model.parameters(), lr=2e-5, weight_decay=0.01)
 
     trainer = Trainer(training_loader, val_loader, model, optimizer)
     trainer.train(args.num_epochs)
